@@ -5,11 +5,11 @@ public class VectorQuantizationLBG {
     private VQDecompression vqDecompression = new VQDecompression();
 
     public void compress(String fileName) throws IOException {
-        vqCompression.compress(fileName);
+        vqCompression.compressRGB(fileName);
     }
 
     public void decompress(String fileName) throws IOException {
-        vqDecompression.decompress(fileName);
+        vqDecompression.decompressRGB(fileName);
     }
     
     public static void main(String[] args) throws IOException {

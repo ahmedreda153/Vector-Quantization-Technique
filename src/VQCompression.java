@@ -1,80 +1,59 @@
-import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Vector;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.awt.image.Raster;
 
 class VQCompression {
     private int width, height;
-    private int[][] originalImage;
+    private int[][][] originalImage;
     private int codebookSize;
     private int blockWidth, blockHeight;
-    private ArrayList<int[][]> originalImageBlocks;
-    private float[][] originalImageAverageBlock;
-    private Vector<float[][]> codeBookBlocks;
-    private Map<String, int[][]> codeBook;
+    private ArrayList<int[][][]> originalImageBlocks;
+    private float[][][] originalImageAverageBlock;
+    private Vector<float[][][]> codeBookBlocks;
+    private Map<String, int[][][]> codeBook;
 
-    // Function to read and know the width of the 2D array from a text file
-    public int getWidth(String fileName) throws IOException {
-        try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {
-            String line = br.readLine();
-            String[] values = line.split(" ");
-            int width = 0;
-
-            for (String value : values) {
-                if (!value.isEmpty()) {
-                    width++;
-                }
-            }
-
-            return width;
-        }
-    }
-
-    // Function to read and know the height of the 2D array from a text file
-    public int getHeight(String fileName) throws IOException {
-        try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {
-            int height = 0;
-            while (br.readLine() != null) {
-                height++;
-            }
-            return height;
-        }
-    }
-
-    // Function to read the 2d array from a text file
-    public int[][] read2DArray(String fileName) throws IOException {
-        int width = getWidth(fileName);
-        int height = getHeight(fileName);
-        int[][] array = new int[height][width];
-
-        try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {
-            for (int i = 0; i < height; i++) {
-                String[] values = br.readLine().split(" ");
-                int j = 0;
-
-                for (String value : values) {
-                    if (!value.isEmpty()) {
-                        array[i][j++] = Integer.parseInt(value);
-                    }
+    // Function to read the RGB image from a file
+    public int[][][] readRGBImage(String fileName) throws IOException {
+        BufferedImage img = ImageIO.read(new File(fileName));
+        int width = img.getWidth();
+        int height = img.getHeight();
+        int[][][] imgArr = new int[width][height][3];
+        Raster raster = img.getData();
+        for (int i = 0; i < width; i++) {
+            for (int j = 0; j < height; j++) {
+                for (int k = 0; k < 3; k++) {
+                    imgArr[i][j][k] = raster.getSample(i, j, k);
                 }
             }
         }
-
-        return array;
+        return imgArr;
     }
 
-    // divide the image into blocks of size 2x2 (blockWidth x blockHeight)
-    public ArrayList<int[][]> divideImageIntoBlocks(int[][] image, int blockWidth, int blockHeight) {
-        ArrayList<int[][]> blocks = new ArrayList<>();
-        for (int i = 0; i < height; i += blockHeight) {
-            for (int j = 0; j < width; j += blockWidth) {
-                int[][] block = new int[blockWidth][blockHeight];
-                for (int k = 0; k < blockHeight; ++k) {
-                    for (int l = 0; l < blockWidth; ++l) {
-                        block[k][l] = image[i + k][j + l];
+    // Function to divide the RGB image into blocks
+    public ArrayList<int[][][]> divideRGBImageIntoBlocks(int[][][] image, int blockWidth, int blockHeight) {
+        ArrayList<int[][][]> blocks = new ArrayList<>();
+
+        int width = image.length;
+        int height = image[0].length;
+
+        for (int i = 0; i < width; i += blockWidth) {
+            for (int j = 0; j < height; j += blockHeight) {
+                int currentBlockWidth = Math.min(blockWidth, width - i);
+                int currentBlockHeight = Math.min(blockHeight, height - j);
+
+                int[][][] block = new int[currentBlockWidth][currentBlockHeight][3];
+
+                for (int k = 0; k < currentBlockWidth; ++k) {
+                    for (int l = 0; l < currentBlockHeight; ++l) {
+                        for (int channel = 0; channel < 3; ++channel) {
+                            block[k][l][channel] = image[i + k][j + l][channel];
+                        }
                     }
                 }
                 blocks.add(block);
@@ -83,81 +62,118 @@ class VQCompression {
         return blocks;
     }
 
-    // calculate the average of blocks in a list
-    public float[][] calculateAverageOfBlocks(ArrayList<int[][]> blocks) {
-        float[][] averageBlock = new float[blockWidth][blockHeight];
+    // calculate the average of blocks in a list for RGB image
+    public float[][][] calculateAverageOfBlocksRGB(ArrayList<int[][][]> blocks) {
+        if (blocks.isEmpty() || blocks.get(0).length == 0 || blocks.get(0)[0].length == 0) {
+            return null;
+        }
+
+        int blockWidth = blocks.get(0).length;
+        int blockHeight = blocks.get(0)[0].length;
+        int numChannels = blocks.get(0)[0][0].length;
+
+        float[][][] averageBlock = new float[blockHeight][blockWidth][numChannels];
+
         for (int i = 0; i < blockHeight; ++i) {
             for (int j = 0; j < blockWidth; ++j) {
-                int sum = 0;
-                for (int k = 0; k < blocks.size(); ++k) {
-                    sum += blocks.get(k)[i][j];
+                for (int channel = 0; channel < numChannels; ++channel) {
+                    int sum = 0;
+                    for (int k = 0; k < blocks.size(); ++k) {
+                        if (i < blocks.get(k).length && j < blocks.get(k)[0].length) {
+                            sum += blocks.get(k)[i][j][channel];
+                        }
+                    }
+                    averageBlock[i][j][channel] = (float) sum / blocks.size();
                 }
-                averageBlock[i][j] = (float) sum / blocks.size();
             }
         }
         return averageBlock;
     }
 
-    // calculate the distance between two blocks
-    public int getDistance(int[][] block1, int[][] block2) {
+    // calculate the distance between two blocks for RGB image
+    public int getDistanceRGB(int[][][] block1, int[][][] block2) {
         int distance = 0;
+
+        if (block1.length != block2.length || block1[0].length != block2[0].length
+                || block1[0][0].length != block2[0][0].length) {
+            return -1;
+        }
+
+        int blockHeight = block1.length;
+        int blockWidth = block1[0].length;
+        int numChannels = block1[0][0].length;
+
         for (int i = 0; i < blockHeight; ++i) {
             for (int j = 0; j < blockWidth; ++j) {
-                distance += Math.abs(block1[i][j] - block2[i][j]);
+                for (int channel = 0; channel < numChannels; ++channel) {
+                    distance += Math.abs(block1[i][j][channel] - block2[i][j][channel]);
+                }
             }
         }
         return distance;
     }
 
-    // split a block into two blocks
-    public void splitBlock(float[][] block, int[][] block1, int[][] block2) {
+    // split a block into two blocks for RGB image
+    public void splitBlockRGB(float[][][] block, int[][][] block1, int[][][] block2) {
         for (int i = 0; i < blockHeight; ++i) {
             for (int j = 0; j < blockWidth; ++j) {
-                if (block[i][j] % 1 == 0) {
-                    block1[i][j] = (int) block[i][j] - 1;
-                    block2[i][j] = (int) block[i][j] + 1;
-                } else {
-                    block1[i][j] = (int) Math.floor(block[i][j]);
-                    block2[i][j] = (int) Math.ceil(block[i][j]);
+                for (int channel = 0; channel < 3; ++channel) {
+                    if (block[i][j][channel] % 1 == 0) {
+                        block1[i][j][channel] = (int) block[i][j][channel] - 1;
+                        block2[i][j][channel] = (int) block[i][j][channel] + 1;
+                    } else {
+                        block1[i][j][channel] = (int) Math.floor(block[i][j][channel]);
+                        block2[i][j][channel] = (int) Math.ceil(block[i][j][channel]);
+                    }
                 }
             }
         }
     }
 
     // 1- split the main average block into two blocks
-    // 2- compare each block from the original image with the two blocks and get two lists
+    // 2- compare each block from the original image with the two blocks and get two
+    // lists
     // 3- calculate the average of each list
     // 4- repeat the process until reaching the number of blocks in the code book
     public void LBG() {
         codeBookBlocks = new Vector<>();
-        originalImageAverageBlock = calculateAverageOfBlocks(originalImageBlocks);
+        originalImageAverageBlock = calculateAverageOfBlocksRGB(originalImageBlocks);
         codeBookBlocks.add(originalImageAverageBlock);
+
         while (codeBookBlocks.size() < codebookSize) {
-            Vector<float[][]> newCodeBookBlocks = new Vector<>();
-            ArrayList<int[][]> tempOriginalImageBlocks = originalImageBlocks;
+            Vector<float[][][]> newCodeBookBlocks = new Vector<>();
+            ArrayList<int[][][]> tempOriginalImageBlocks = originalImageBlocks;
+
             for (int i = 0; i < codeBookBlocks.size(); ++i) {
-                int[][] block1 = new int[blockWidth][blockHeight];
-                int[][] block2 = new int[blockWidth][blockHeight];
-                splitBlock(codeBookBlocks.get(i), block1, block2);
-                ArrayList<int[][]> list1 = new ArrayList<>();
-                ArrayList<int[][]> list2 = new ArrayList<>();
+                int[][][] block1 = new int[blockWidth][blockHeight][3];
+                int[][][] block2 = new int[blockWidth][blockHeight][3];
+                splitBlockRGB(codeBookBlocks.get(i), block1, block2);
+
+                ArrayList<int[][][]> list1 = new ArrayList<>();
+                ArrayList<int[][][]> list2 = new ArrayList<>();
+
                 for (int j = 0; j < tempOriginalImageBlocks.size(); ++j) {
-                    int distance1 = getDistance(tempOriginalImageBlocks.get(j), block1);
-                    int distance2 = getDistance(tempOriginalImageBlocks.get(j), block2);
+                    int distance1 = getDistanceRGB(tempOriginalImageBlocks.get(j), block1);
+                    int distance2 = getDistanceRGB(tempOriginalImageBlocks.get(j), block2);
+
                     if (distance1 <= distance2) {
                         list1.add(tempOriginalImageBlocks.get(j));
                     } else {
                         list2.add(tempOriginalImageBlocks.get(j));
                     }
                 }
+
                 if (i + 1 < codeBookBlocks.size()) {
-                    int[][] block3 = new int[blockWidth][blockHeight];
-                    int[][] block4 = new int[blockWidth][blockHeight];
-                    splitBlock(codeBookBlocks.get(i + 1), block3, block4);
-                    ArrayList<int[][]> list3 = new ArrayList<>();
+                    int[][][] block3 = new int[blockWidth][blockHeight][3];
+                    int[][][] block4 = new int[blockWidth][blockHeight][3];
+                    splitBlockRGB(codeBookBlocks.get(i + 1), block3, block4);
+
+                    ArrayList<int[][][]> list3 = new ArrayList<>();
+
                     for (int j = 0; j < list2.size();) {
-                        int distance3 = getDistance(list2.get(j), block2);
-                        int distance4 = getDistance(list2.get(j), block3);
+                        int distance3 = getDistanceRGB(list2.get(j), block2);
+                        int distance4 = getDistanceRGB(list2.get(j), block3);
+
                         if (distance3 > distance4) {
                             list3.add(list2.get(j));
                             list2.remove(j);
@@ -165,49 +181,55 @@ class VQCompression {
                             ++j;
                         }
                     }
+
                     tempOriginalImageBlocks = list3;
                 }
 
-                float[][] averageBlock1 = calculateAverageOfBlocks(list1);
-                float[][] averageBlock2 = calculateAverageOfBlocks(list2);
+                float[][][] averageBlock1 = calculateAverageOfBlocksRGB(list1);
+                float[][][] averageBlock2 = calculateAverageOfBlocksRGB(list2);
                 newCodeBookBlocks.add(averageBlock1);
                 newCodeBookBlocks.add(averageBlock2);
             }
+
             codeBookBlocks = newCodeBookBlocks;
         }
     }
 
-    // convert float array to int array
-    public int[][] convertFloatArrayToIntArray(float[][] doubleArray) {
-        int[][] intArray = new int[blockWidth][blockHeight];
+    // convert float array to int array for RGB image
+    public int[][][] convertFloatArrayToIntArrayRGB(float[][][] doubleArray) {
+        int[][][] intArray = new int[blockWidth][blockHeight][3];
         for (int i = 0; i < blockHeight; ++i) {
             for (int j = 0; j < blockWidth; ++j) {
-                intArray[i][j] = (int) doubleArray[i][j];
+                for (int channel = 0; channel < 3; ++channel) {
+                    intArray[i][j][channel] = (int) doubleArray[i][j][channel];
+                }
             }
         }
         return intArray;
     }
 
-    // generate binary code (label) for each block in the code book
-    public Map<String, int[][]> generateCodeBook(int codebookSize) {
-        Map<String, int[][]> codeBook = new java.util.HashMap<>();
+    // generate binary code (label) for each block in the code book for RGB image
+    public Map<String, int[][][]> generateCodeBookRGB(int codebookSize) {
+        Map<String, int[][][]> codeBook = new java.util.HashMap<>();
         int numberOfBits = (int) Math.ceil(Math.log(codebookSize) / Math.log(2));
         for (int i = 0; i < codebookSize; ++i) {
             String binary = Integer.toBinaryString(i);
             while (binary.length() < numberOfBits) {
                 binary = "0" + binary;
             }
-            codeBook.put(binary, convertFloatArrayToIntArray(codeBookBlocks.get(i)));
+            codeBook.put(binary, convertFloatArrayToIntArrayRGB(codeBookBlocks.get(i)));
         }
         return codeBook;
     }
 
-    // get the binary code (label) of a block
-    public String getBinaryCode(int[][] block) {
+    // get the binary code (label) of a block for RGB image
+    public String getBinaryCodeRGB(int[][][] block) {
         int minDistance = Integer.MAX_VALUE;
         String binaryCode = "";
-        for (Map.Entry<String, int[][]> entry : codeBook.entrySet()) {
-            int distance = getDistance(block, entry.getValue());
+
+        for (Map.Entry<String, int[][][]> entry : codeBook.entrySet()) {
+            int distance = getDistanceRGB(block, entry.getValue());
+
             if (distance < minDistance) {
                 minDistance = distance;
                 binaryCode = entry.getKey();
@@ -216,27 +238,50 @@ class VQCompression {
         return binaryCode;
     }
 
-    // write the all needed data in a file
-    public void writeDataInFile() throws IOException {
-        FileOutputStream fileOutputStream = new FileOutputStream("F:\\DC\\Vector-Quantization-TECHNIQUE\\compressed.txt");
-        fileOutputStream.write(width);
-        fileOutputStream.write(height);
+    // write the all needed data in a file for RGB image
+    public void writeDataInFileRGB() throws IOException {
+        FileOutputStream fileOutputStream = new FileOutputStream(
+                "F:\\Vector-Quantization-TECHNIQUE_RGB\\compressed.txt");
+
+        // store width in 4 bytes
+        String binaryWidth = Integer.toBinaryString(width);
+        while (binaryWidth.length() < 32) {
+            binaryWidth = "0" + binaryWidth;
+        }
+        for (int i = 0; i < 32; i += 8) {
+            fileOutputStream.write(Integer.parseInt(binaryWidth.substring(i, i + 8), 2));
+        }
+
+        // store height in 4 bytes
+        String binaryHeight = Integer.toBinaryString(height);
+        while (binaryHeight.length() < 32) {
+            binaryHeight = "0" + binaryHeight;
+        }
+        for (int i = 0; i < 32; i += 8) {
+            fileOutputStream.write(Integer.parseInt(binaryHeight.substring(i, i + 8), 2));
+        }
+
         fileOutputStream.write(blockWidth);
         fileOutputStream.write(blockHeight);
         fileOutputStream.write(codebookSize);
-        // write the code book (label, block)
-        for (Map.Entry<String, int[][]> entry : codeBook.entrySet()) {
+
+        // write the code book (label, block) for RGB image
+        for (Map.Entry<String, int[][][]> entry : codeBook.entrySet()) {
             fileOutputStream.write(Integer.parseInt(entry.getKey(), 2));
             for (int i = 0; i < blockHeight; ++i) {
                 for (int j = 0; j < blockWidth; ++j) {
-                    fileOutputStream.write(entry.getValue()[i][j]);
+                    for (int channel = 0; channel < 3; ++channel) {
+                        fileOutputStream.write(entry.getValue()[i][j][channel]);
+                    }
                 }
             }
         }
-        // write the binary code of each block in the original image in a string
+
+        // write the binary code of each block in the original image in a string for RGB
+        // image
         String compressedStream = "";
         for (int i = 0; i < originalImageBlocks.size(); ++i) {
-            String binaryCode = getBinaryCode(originalImageBlocks.get(i));
+            String binaryCode = getBinaryCodeRGB(originalImageBlocks.get(i));
             compressedStream += binaryCode;
         }
 
@@ -261,20 +306,22 @@ class VQCompression {
         for (int i = 0; i < compressedStream.length(); i += 8) {
             fileOutputStream.write(Integer.parseInt(compressedStream.substring(i, i + 8), 2));
         }
+
         fileOutputStream.close();
     }
 
-    // Function to compress the original data
-    public void compress(String fileName) throws IOException {
-        this.codebookSize = 4;
-        this.originalImage = read2DArray(fileName);
+    // Function to compress the original data for RGB image
+    public void compressRGB(String fileName) throws IOException {
+        this.codebookSize = 32;
+        this.originalImage = readRGBImage(fileName);
         this.width = originalImage[0].length;
         this.height = originalImage.length;
         this.blockWidth = 2;
         this.blockHeight = 2;
-        this.originalImageBlocks = divideImageIntoBlocks(originalImage, blockWidth, blockHeight);
+        this.originalImageBlocks = divideRGBImageIntoBlocks(originalImage, blockWidth, blockHeight);
         LBG();
-        this.codeBook = generateCodeBook(codebookSize);
-        writeDataInFile();
+        this.codeBook = generateCodeBookRGB(codebookSize);
+        writeDataInFileRGB();
     }
+
 }
